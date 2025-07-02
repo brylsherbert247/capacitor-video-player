@@ -1,0 +1,1 @@
+{"version":3,"file":"video-types.d.ts","sourceRoot":"","sources":["../../src/web-utils/video-types.ts"],"names":[],"mappings":"AAAA,MAAM,MAAM,cAAc,GAAG,KAAK,GAAG,MAAM,GAAG,MAAM,GAAG,MAAM,GAAG,MAAM,CAAC;AACvE,MAAM,MAAM,aAAa,GAAG,WAAW,GAAG,uBAAuB,CAAC;AAClE,eAAO,MAAM,gCAAgC,EAAE,MAAM,EAMpD,CAAC;AAEF,eAAO,MAAM,UAAU,EAAE,MAAM,CAAC,cAAc,EAAE,aAAa,CAM5D,CAAC"}

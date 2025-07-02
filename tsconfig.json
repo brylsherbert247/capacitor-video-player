@@ -1,8 +1,9 @@
 {
   "compilerOptions": {
-    "allowUnreachableCode": false,
     "declaration": true,
     "declarationMap": true,
+    "declarationDir": "dist",
+    "allowUnreachableCode": false,
     "esModuleInterop": true,
     "lib": ["dom", "es2017"],
     "module": "esnext",
@@ -16,5 +17,7 @@
     "strict": true,
     "target": "es2017"
   },
+  "include": ["src"],
+  "exclude": ["node_modules", "dist"],
   "files": ["src/index.ts"]
 }

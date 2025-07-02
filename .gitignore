@@ -1,6 +1,6 @@
 # node files
-dist
-node_modules
+-node_modules
++node_modules/
 
 # iOS files
 Pods
@@ -62,4 +62,6 @@ captures
 .vscode/
 
 site
-dist
+- dist
++ # Allow plugin dist folder
++ !/dist/
