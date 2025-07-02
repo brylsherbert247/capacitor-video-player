@@ -2,7 +2,8 @@
   "compilerOptions": {
     "declaration": true,
     "declarationMap": true,
-    "declarationDir": "dist",
+    "declarationDir": "dist/esm",
+    "emitDeclarationOnly": false,
     "allowUnreachableCode": false,
     "esModuleInterop": true,
     "lib": ["dom", "es2017"],
