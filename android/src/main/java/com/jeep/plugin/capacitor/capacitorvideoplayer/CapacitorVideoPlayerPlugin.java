@@ -275,8 +275,7 @@ public class CapacitorVideoPlayerPlugin extends Plugin {
             return;
         }
         if ("fullscreen".equals(mode) && fsPlayerId.equals(playerId)) {
-            bridge
-                .getActivity()
+            .getActivity()
                 .runOnUiThread(
                     new Runnable() {
                         @Override
