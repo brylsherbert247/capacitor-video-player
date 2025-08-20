@@ -583,6 +583,52 @@ export class CapacitorVideoPlayerWeb
       value: true,
     });
   }
+  /**
+   * Exit fullscreen mode for a given playerId
+   *
+   */
+  async exitFullScreen(options: capVideoPlayerIdOptions): Promise<capVideoPlayerResult> {
+    if (options == null) {
+      return Promise.resolve({
+        result: false,
+        method: 'exitFullScreen',
+        message: 'Must provide a capVideoPlayerIdOptions object',
+      });
+    }
+    
+    let playerId: string = options.playerId ? options.playerId : '';
+    if (playerId == null || playerId.length === 0) {
+      playerId = 'fullscreen';
+    }
+    
+    if (this._players[playerId]) {
+      // Pause the video if it's playing
+      if (!this._players[playerId].videoEl.paused) {
+        this._players[playerId].videoEl.pause();
+      }
+      
+      // Remove the player from the array
+      delete this._players[playerId];
+      
+      // Remove the video container if it exists
+      if (this.videoContainer) {
+        this.videoContainer.remove();
+        this.videoContainer = null;
+      }
+      
+      return Promise.resolve({
+        method: 'exitFullScreen',
+        result: true,
+        value: true,
+      });
+    } else {
+      return Promise.resolve({
+        method: 'exitFullScreen',
+        result: false,
+        message: 'Given PlayerId does not exist',
+      });
+    }
+  }
   private checkSize(options: capVideoPlayerOptions): IPlayerSize {
     const playerSize: IPlayerSize = {
       width: options.width ? options.width : 320,
