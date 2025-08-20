@@ -894,6 +894,57 @@ public class CapacitorVideoPlayerPlugin extends Plugin {
             );
     }
 
+    @PluginMethod
+    public void exitFullScreen(PluginCall call) {
+        this.call = call;
+        bridge
+            .getActivity()
+            .runOnUiThread(
+                new Runnable() {
+                    @Override
+                    public void run() {
+                        JSObject ret = new JSObject();
+                        ret.put("method", "exitFullScreen");
+                        
+                        // Get playerId from options
+                        String playerId = call.getString("playerId");
+                        if (playerId == null || playerId.isEmpty()) {
+                            playerId = "fullscreen";
+                        }
+                        
+                        // Check if the playerId matches and mode is fullscreen
+                        if ("fullscreen".equals(mode) && playerId.equals(fsPlayerId)) {
+                            if (fsFragment != null) {
+                                // Pause the video if it's playing
+                                if (fsFragment.isPlaying()) {
+                                    fsFragment.pause();
+                                }
+                                
+                                // Exit the fullscreen fragment
+                                fsFragment.playerExit();
+                                
+                                // Reset the mode and player ID
+                                mode = null;
+                                fsPlayerId = "fullscreen";
+                                
+                                ret.put("result", true);
+                                ret.put("value", true);
+                                call.resolve(ret);
+                            } else {
+                                ret.put("result", false);
+                                ret.put("message", "Fullscreen fragment is not defined");
+                                call.resolve(ret);
+                            }
+                        } else {
+                            ret.put("result", false);
+                            ret.put("message", "Invalid player mode or playerId mismatch");
+                            call.resolve(ret);
+                        }
+                    }
+                }
+            );
+    }
+
     public boolean isDeviceTV(Context context) {
         //Since Android TV is only API 21+ that is the only time we will compare configurations
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
