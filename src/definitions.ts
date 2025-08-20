@@ -91,6 +91,11 @@ export interface CapacitorVideoPlayerPlugin {
    *
    */
   exitPlayer(): Promise<capVideoPlayerResult>;
+  /**
+   * Exit fullscreen mode for a given playerId
+   *
+   */
+  exitFullScreen(options: capVideoPlayerIdOptions): Promise<capVideoPlayerResult>;
 }
 export interface capEchoOptions {
   /**
