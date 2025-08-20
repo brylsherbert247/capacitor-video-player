@@ -22,6 +22,7 @@
 * [`showController()`](#showcontroller)
 * [`isControllerIsFullyVisible()`](#iscontrollerisfullyvisible)
 * [`exitPlayer()`](#exitplayer)
+* [`exitFullScreen(...)`](#exitfullscreen)
 * [Interfaces](#interfaces)
 
 </docgen-index>
@@ -463,6 +464,19 @@ exitPlayer() => Promise<capVideoPlayerResult>
 ```
 
 Exit player
+
+**Returns:** <code>Promise&lt;<a href="#capvideoplayerresult">capVideoPlayerResult</a>&gt;</code>
+
+--------------------
+
+
+### exitFullScreen()
+
+```typescript
+exitFullScreen(options: capVideoPlayerIdOptions) => Promise<capVideoPlayerResult>
+```
+
+Exit fullscreen mode for a given playerId
 
 **Returns:** <code>Promise&lt;<a href="#capvideoplayerresult">capVideoPlayerResult</a>&gt;</code>
 
