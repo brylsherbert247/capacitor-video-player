@@ -626,6 +626,43 @@ public class CapacitorVideoPlayerPlugin: CAPPlugin {
 
     }
 
+    @objc func exitFullScreen(_ call: CAPPluginCall) {
+        self.call = call
+        
+        guard let playerId = call.options["playerId"] as? String else {
+            let error: String = "Must provide a playerId"
+            print(error)
+            call.resolve([ "result": false, "method": "exitFullScreen", "message": error])
+            return
+        }
+        
+        if self.mode == "fullscreen" && self.fsPlayerId == playerId {
+            if let playerView = self.videoPlayerFullScreenView {
+                DispatchQueue.main.async { [weak self] in
+                    // Pause the video if it's playing
+                    if playerView.isPlaying {
+                        playerView.pause()
+                    }
+                    
+                    // Use the existing notification system to trigger proper cleanup
+                    NotificationCenter.default.post(name: .playerFullscreenDismiss, object: nil)
+                    
+                    // Resolve the call with success
+                    call.resolve([ "result": true, "method": "exitFullScreen", "value": true])
+                }
+            } else {
+                let error: String = "Fullscreen player not found"
+                print(error)
+                call.resolve([ "result": false, "method": "exitFullScreen", "message": error])
+                return
+            }
+        } else {
+            let error: String = "Invalid player mode or playerId mismatch"
+            print(error)
+            call.resolve([ "result": false, "method": "exitFullScreen", "message": error])
+            return
+        }
+    }
 }
 
 // swiftlint:enable type_body_length
