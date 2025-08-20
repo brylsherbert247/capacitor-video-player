@@ -1,6 +1,6 @@
 {
   "name": "@brylsherbert/capacitor-video-player",
-  "version": "7.0.3",
+  "version": "7.0.5",
   "description": "custom Native Capacitor plugin to play a video",
   "main": "dist/plugin.cjs.js",
   "module": "dist/esm/index.js",
@@ -12,7 +12,7 @@
     "android/build.gradle",
     "dist/",
     "ios/Plugin/",
-    "CapacitorVideoPlayer.podspec"
+    "BrylsherbertCapacitorVideoPlayer.podspec"
   ],
   "author": "Jean Pierre Quéau",
   "license": "MIT",
@@ -43,31 +43,31 @@
     "prettier": "prettier \"**/*.{css,html,ts,js,java}\"",
     "swiftlint": "node-swiftlint",
     "docgen": "docgen --api CapacitorVideoPlayerPlugin  --output-readme docs/API.md --output-json dist/docs.json",
-    "build": "npm run clean && npm run docgen && tsc && rollup -c rollup.config.js",
+    "build": "npm run clean && ./node_modules/.bin/tsc && ./node_modules/.bin/rollup -c rollup.config.js",
     "clean": "rimraf ./dist",
     "watch": "tsc --watch",
     "test": "echo \"No test specified\"",
-    "prepublishOnly": "npm run build && npm run docgen"
+    "prepublishOnly": "npm run build"
   },
   "devDependencies": {
     "@capacitor/android": "^7.4.1",
     "@capacitor/core": "^7.4.1",
-    "@capacitor/ios": "^7.4.1",
     "@capacitor/docgen": "^0.3.0",
+    "@capacitor/ios": "^7.4.1",
     "@ionic/eslint-config": "^0.4.0",
     "@ionic/prettier-config": "^4.0.0",
     "@ionic/swiftlint-config": "^2.0.0",
-    "@rollup/plugin-commonjs": "^28.0.2",
-    "@rollup/plugin-node-resolve": "^16.0.0",
+    "@rollup/plugin-commonjs": "^28.0.6",
+    "@rollup/plugin-node-resolve": "^16.0.1",
+    "@types/node": "^22.10.2",
     "eslint": "^8.57.1",
     "hls.js": "^1.5.18",
     "prettier": "~3.4.2",
     "prettier-plugin-java": "~2.6.5",
     "rimraf": "^6.0.1",
-    "rollup": "^4.28.1",
+    "rollup": "^4.46.4",
     "swiftlint": "^2.0.0",
-    "typescript": "~5.7.2",
-    "@types/node": "^22.10.2"
+    "typescript": "~5.7.2"
   },
   "peerDependencies": {
     "@capacitor/core": "^7.0.0",
