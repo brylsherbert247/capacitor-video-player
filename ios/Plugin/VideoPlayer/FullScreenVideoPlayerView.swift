@@ -380,7 +380,7 @@ open class FullScreenVideoPlayerView: UIView {
         return Double(CMTimeGetSeconds(self.videoAsset.duration))
     }
     @objc func getCurrentTime() -> Double {
-        return self._currentTime
+        return self.player?.currentTime().seconds ?? 0.0
     }
     // This func will return the updated currentTime of player item
     // getCurrentTime() is only updated when player plays, pauses, seek, etc
