@@ -1,6 +1,6 @@
 {
   "name": "@brylsherbert/capacitor-video-player",
-  "version": "7.0.9",
+  "version": "7.0.32",
   "description": "custom Native Capacitor plugin to play a video",
   "main": "dist/plugin.cjs.js",
   "module": "dist/esm/index.js",

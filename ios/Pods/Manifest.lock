@@ -1,11 +1,17 @@
 PODS:
-  - Capacitor (5.5.1):
+  - AVPlayerViewController-Subtitles (1.3.1)
+  - Capacitor (7.4.1):
     - CapacitorCordova
-  - CapacitorCordova (5.5.1)
+  - CapacitorCordova (7.4.1)
 
 DEPENDENCIES:
+  - AVPlayerViewController-Subtitles
   - "Capacitor (from `../node_modules/@capacitor/ios`)"
   - "CapacitorCordova (from `../node_modules/@capacitor/ios`)"
+
+SPEC REPOS:
+  trunk:
+    - AVPlayerViewController-Subtitles
 
 EXTERNAL SOURCES:
   Capacitor:
@@ -14,9 +20,10 @@ EXTERNAL SOURCES:
     :path: "../node_modules/@capacitor/ios"
 
 SPEC CHECKSUMS:
-  Capacitor: 9da0a2415e3b6098511f8b5ffdb578d91ee79f8f
-  CapacitorCordova: e128cc7688c070ca0bfa439898a5f609da8dbcfe
+  AVPlayerViewController-Subtitles: 34c89a7378e66bc113d1e77d1c199f6bc3b4e87e
+  Capacitor: 78ad32d4b0d9dfa25402eb8b0ac46c2b8a4696b8
+  CapacitorCordova: 34618fa1b14b6b091fd60a7658f7654044ae8d8a
 
-PODFILE CHECKSUM: 14e8b2400457751b865e1c327e7cfa1c6fa67da6
+PODFILE CHECKSUM: a482f44bdb285345877a2188ebcb4a243c431f47
 
-COCOAPODS: 1.10.0
+COCOAPODS: 1.16.2

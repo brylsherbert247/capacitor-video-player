@@ -38,6 +38,7 @@ public class CapacitorVideoPlayerPlugin: CAPPlugin {
     var backgroundObserver: Any?
     var foregroundObserver: Any?
     var vpInternalObserver: Any?
+    var isPlayerDismissed: Bool = false
     let rateList: [Float] = [0.25, 0.5, 0.75, 1.0, 2.0, 4.0]
 
     override public func load() {
@@ -50,6 +51,15 @@ public class CapacitorVideoPlayerPlugin: CAPPlugin {
         }
     }
     deinit {
+        print("🗑️ CapacitorVideoPlayerPlugin deinit called")
+        
+        // Clean up video player references
+        self.videoPlayerFullScreenView = nil
+        self.videoPlayer = nil
+        self.bgPlayer = nil
+        self.audioSession = nil
+        
+        // Clean up notification observers
         NotificationCenter.default.removeObserver(playObserver as Any)
         NotificationCenter.default.removeObserver(pauseObserver as Any)
         NotificationCenter.default.removeObserver(endObserver as Any)
@@ -58,6 +68,18 @@ public class CapacitorVideoPlayerPlugin: CAPPlugin {
         NotificationCenter.default.removeObserver(backgroundObserver as Any)
         NotificationCenter.default.removeObserver(foregroundObserver as Any)
         NotificationCenter.default.removeObserver(vpInternalObserver as Any)
+        
+        // Clear observer references
+        self.playObserver = nil
+        self.pauseObserver = nil
+        self.endObserver = nil
+        self.readyObserver = nil
+        self.fsDismissObserver = nil
+        self.backgroundObserver = nil
+        self.foregroundObserver = nil
+        self.vpInternalObserver = nil
+        
+        print("✅ Plugin cleanup completed")
     }
 
     @objc func echo(_ call: CAPPluginCall) {
@@ -73,6 +95,10 @@ public class CapacitorVideoPlayerPlugin: CAPPlugin {
     // swiftlint:disable cyclomatic_complexity
     @objc func initPlayer(_ call: CAPPluginCall) {
         self.call = call
+        
+        // Reset dismissal state for new player
+        self.isPlayerDismissed = false
+        
         guard let mode = call.options["mode"] as? String else {
             let error: String = "Must provide a Mode " +
                 "(fullscreen/embedded)"
@@ -275,6 +301,15 @@ public class CapacitorVideoPlayerPlugin: CAPPlugin {
 
     @objc func play(_ call: CAPPluginCall) {
         self.call = call
+        
+        // Check if player has been dismissed
+        if self.isPlayerDismissed {
+            let error: String = "Player has been dismissed"
+            print("⚠️ \(error) - ignoring play call")
+            call.resolve([ "result": false, "method": "play", "message": error])
+            return
+        }
+        
         guard let playerId = call.options["playerId"] as? String else {
             let error: String = "Must provide a playerId"
             print(error)
@@ -302,6 +337,14 @@ public class CapacitorVideoPlayerPlugin: CAPPlugin {
 
     @objc func pause(_ call: CAPPluginCall) {
         self.call = call
+        
+        // Check if player has been dismissed
+        if self.isPlayerDismissed {
+            let error: String = "Player has been dismissed"
+            print("⚠️ \(error) - ignoring pause call")
+            call.resolve([ "result": false, "method": "pause", "message": error])
+            return
+        }
 
         guard let playerId = call.options["playerId"] as? String else {
             let error: String = "Must provide a playerId"
@@ -363,6 +406,15 @@ public class CapacitorVideoPlayerPlugin: CAPPlugin {
             call.resolve([ "result": false, "method": "getCurrentTime", "message": error])
             return
         }
+        
+        // Check if player has been dismissed
+        if self.isPlayerDismissed {
+            let error: String = "Player has been dismissed"
+            print("⚠️ \(error) - ignoring getCurrentTime call")
+            call.resolve([ "result": false, "method": "getCurrentTime", "message": error])
+            return
+        }
+        
         if self.mode == "fullscreen" && self.fsPlayerId == playerId {
             if let playerView = self.videoPlayerFullScreenView {
                 DispatchQueue.main.async {
@@ -373,7 +425,7 @@ public class CapacitorVideoPlayerPlugin: CAPPlugin {
                 }
             } else {
                 let error: String = "Fullscreen playerId not found"
-                print(error)
+                print("⚠️ \(error) - player may have been dismissed")
                 call.resolve([ "result": false, "method": "getCurrentTime", "message": error])
                 return
             }
@@ -385,6 +437,14 @@ public class CapacitorVideoPlayerPlugin: CAPPlugin {
 
     @objc func setCurrentTime(_ call: CAPPluginCall) {
         self.call = call
+        
+        // Check if player has been dismissed
+        if self.isPlayerDismissed {
+            let error: String = "Player has been dismissed"
+            print("⚠️ \(error) - ignoring setCurrentTime call")
+            call.resolve([ "result": false, "method": "setCurrentTime", "message": error])
+            return
+        }
 
         guard let playerId = call.options["playerId"] as? String else {
             let error: String = "Must provide a playerId"

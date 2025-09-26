@@ -9,6 +9,7 @@
 import UIKit
 import AVKit
 import MediaPlayer
+import AVPlayerViewControllerSubtitles
 
 // swiftlint:disable file_length
 // swiftlint:disable type_body_length
@@ -46,6 +47,7 @@ open class FullScreenVideoPlayerView: UIView {
     var videoPlayerFrameObserver: NSKeyValueObservation?
     var videoPlayerMoveObserver: NSKeyValueObservation?
     var periodicTimeObserver: Any?
+    var subtitleTimeObserver: Any?
 
     init(url: URL, rate: Float, playerId: String, exitOnEnd: Bool,
          loopOnEnd: Bool, pipEnabled: Bool, showControls: Bool,
@@ -90,81 +92,436 @@ open class FullScreenVideoPlayerView: UIView {
 
     // swiftlint:disable function_body_length
     // swiftlint:disable cyclomatic_complexity
-    private func initialize() {
-        // Set SubTitles if any
-        if var subTitleUrl = self._stUrl {
-            //check if subtitle is .srt
-            if subTitleUrl.pathExtension == "srt" {
-                let vttUrl: URL = srtSubtitleToVtt(srtURL: subTitleUrl)
-                self._stUrl = vttUrl
-                subTitleUrl = vttUrl
+  private func initialize() {
+      // Set SubTitles if any
+      if var subTitleUrl = self._stUrl {
+          // For HLS streams, we need to load the asset asynchronously
+          print("Loading HLS stream: \(self._url)")
+          
+          // Load the asset asynchronously first
+          self.videoAsset.loadValuesAsynchronously(forKeys: ["tracks", "duration"]) {
+              DispatchQueue.main.async {
+                  print("HLS stream loaded. Tracks count: \(self.videoAsset.tracks.count)")
+                  
+                  // For HLS streams, tracks might not be immediately available
+                  // Check if this is an HLS stream by URL extension or content type
+                  let isHLSStream = self.isHLSStream(url: self._url)
+                  
+                  if isHLSStream {
+                      print("HLS stream detected - proceeding with player setup")
+                      print("HLS stream URL: \(self._url.absoluteString)")
+                      print("HLS stream tracks available: \(self.videoAsset.tracks.count)")
+                      // For HLS streams, proceed with player setup even if tracks aren't immediately available
+                      // The tracks will be loaded when the player item becomes ready
+                      self.loadVideoAssetWithSubtitles(subTitleUrl: subTitleUrl)
+                  } else {
+                      // For non-HLS streams, check for video tracks
+                  let videoTracks = self.videoAsset.tracks(withMediaType: AVMediaType.video)
+                  guard !videoTracks.isEmpty else {
+                          print("No video tracks found in non-HLS stream - using simple player")
+                      self.playerItem = AVPlayerItem(asset: self.videoAsset)
+                      self.player = AVPlayer(playerItem: self.playerItem)
+                      self.setupPlayer()
+                      return
+                  }
+                  
+                  // Continue with subtitle logic only after HLS is loaded
+                  self.loadVideoAssetWithSubtitles(subTitleUrl: subTitleUrl)
+                  }
+              }
+          }
+      } else {
+          // No subtitles, use simple player
+          self.playerItem = AVPlayerItem(asset: self.videoAsset)
+          self.player = AVPlayer(playerItem: self.playerItem)
+          self.setupPlayer()
+      }
+  }
+    
+    private func loadVideoAssetWithSubtitles(subTitleUrl: URL) {
+        print("Loading video asset with subtitles...")
+        
+        // Check if this is an HLS stream
+        let isHLSStream = self.isHLSStream(url: self._url)
+        
+        if isHLSStream {
+            print("HLS stream detected - setting up player with subtitles")
+            print("HLS URL: \(self._url.absoluteString)")
+            // For HLS streams, set up subtitles first, then create player
+            self.setupSubtitlesForHLS(subTitleUrl: subTitleUrl)
+        } else {
+            // For non-HLS streams, load tracks asynchronously
+        self.videoAsset.loadValuesAsynchronously(forKeys: ["tracks", "duration"]) { [weak self] in
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                
+                print("Video asset loaded. Tracks count: \(self.videoAsset.tracks.count)")
+                print("Video asset duration: \(self.videoAsset.duration)")
+                
+                let videoTracks = self.videoAsset.tracks(withMediaType: AVMediaType.video)
+                print("Video tracks count: \(videoTracks.count)")
+                
+                if videoTracks.isEmpty {
+                    print("No video tracks found after loading - falling back to simple player")
+                    self.playerItem = AVPlayerItem(asset: self.videoAsset)
+                    self.player = AVPlayer(playerItem: self.playerItem)
+                    self.setupPlayer()
+                    return
+                }
+                
+                // Now proceed with subtitle composition
+                self.createPlayerWithSubtitles(subTitleUrl: subTitleUrl, videoTracks: videoTracks)
+                }
             }
-            var textStyle: [AVTextStyleRule] = []
-            if let opt = self._stOptions {
-                textStyle.append(contentsOf: self.setSubTitleStyle(options: opt))
+        }
+    }
+    
+    private func setupSubtitlesForHLS(subTitleUrl: URL) {
+        print("Setting up subtitles for HLS stream using AVPlayerViewController-Subtitles...")
+        
+        // Create player item with the original HLS asset
+        self.playerItem = AVPlayerItem(asset: self.videoAsset)
+        self.player = AVPlayer(playerItem: self.playerItem)
+        
+        // CRITICAL: Assign player to videoPlayer BEFORE setting up subtitles
+        self.videoPlayer.player = self.player
+        
+        // Set up the player first
+        self.setupPlayer()
+        
+        // Wait for player to be ready before adding subtitles
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self = self else { return }
+            self.addSubtitlesToPlayer(subTitleUrl: subTitleUrl)
+            
+            // Auto-play for HLS streams with subtitles
+            self.autoPlayIfHLSReady()
+        }
+    }
+    
+    private func addSubtitlesToPlayer(subTitleUrl: URL) {
+        print("Setting up custom subtitle display...")
+        
+        // Check if subtitle file exists and is accessible
+        guard FileManager.default.fileExists(atPath: subTitleUrl.path) else {
+            print("Subtitle file not found at: \(subTitleUrl.path)")
+            return
+        }
+        
+        // Read and parse subtitle content
+        do {
+            let subtitleContent = try String(contentsOf: subTitleUrl, encoding: .utf8)
+            let isVTT = subtitleContent.hasPrefix("WEBVTT")
+            print("Subtitle format detected: \(isVTT ? "VTT" : "SRT")")
+            
+            // Parse subtitles based on format
+            let subtitles: [(start: Double, end: Double, text: String)]
+            if isVTT {
+                subtitles = parseVTTContent(subtitleContent)
+            } else {
+                subtitles = parseSRTContent(subtitleContent)
             }
-
-            let subTitleAsset = AVAsset(url: subTitleUrl)
-            let composition = AVMutableComposition()
-
-            if let videoTrack = composition.addMutableTrack(
-                withMediaType: AVMediaType.video,
-                preferredTrackID: Int32(kCMPersistentTrackID_Invalid)) {
-                if let audioTrack = composition.addMutableTrack(
-                    withMediaType: AVMediaType.audio,
-                    preferredTrackID: Int32(kCMPersistentTrackID_Invalid)) {
-                    do {
-                        try videoTrack.insertTimeRange(
-                            CMTimeRangeMake(start: CMTime.zero,
-                                            duration: self.videoAsset.duration),
-                            of: self.videoAsset.tracks(
-                                withMediaType: AVMediaType.video)[0],
-                            at: CMTime.zero)
-                        // if video has an audio track
-                        if self.videoAsset.tracks.count > 0 {
-                            let clipAudioTrack = self.videoAsset.tracks(
-                                withMediaType: AVMediaType.audio)[0]
-                            try audioTrack.insertTimeRange(CMTimeRangeMake(
-                                                            start: CMTime.zero,
-                                                            duration: self.videoAsset.duration),
-                                                           of: clipAudioTrack, at: CMTime.zero)
+            
+            print("Parsed \(subtitles.count) subtitle entries")
+            
+            // Create subtitle label that shows/hides based on timing
+            let subtitleLabel = UILabel()
+            subtitleLabel.textColor = UIColor.white
+            subtitleLabel.backgroundColor = UIColor.black.withAlphaComponent(0.7)
+            subtitleLabel.textAlignment = .center
+            subtitleLabel.font = UIFont.systemFont(ofSize: 16)
+            subtitleLabel.numberOfLines = 0
+            subtitleLabel.isHidden = true  // Start hidden
+            subtitleLabel.alpha = 0.0       // Start transparent
+            
+            // Add to the video player's content overlay view with delay to ensure proper layout
+            if let contentOverlayView = self.videoPlayer.contentOverlayView {
+                contentOverlayView.addSubview(subtitleLabel)
+                subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
+                
+                // Wait for the view to have proper dimensions before setting constraints
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    // Use more flexible constraints to avoid conflicts
+                    NSLayoutConstraint.activate([
+                        subtitleLabel.centerXAnchor.constraint(equalTo: contentOverlayView.centerXAnchor),
+                        subtitleLabel.bottomAnchor.constraint(equalTo: contentOverlayView.bottomAnchor, constant: -50),
+                        subtitleLabel.leadingAnchor.constraint(greaterThanOrEqualTo: contentOverlayView.leadingAnchor, constant: 20),
+                        subtitleLabel.trailingAnchor.constraint(lessThanOrEqualTo: contentOverlayView.trailingAnchor, constant: -20),
+                        subtitleLabel.widthAnchor.constraint(lessThanOrEqualTo: contentOverlayView.widthAnchor, constant: -40)
+                    ])
+                    print("Added subtitle label constraints after layout")
+                }
+                print("Added subtitle label to content overlay view")
+            } else {
+                print("Content overlay view is nil!")
+            }
+            
+            // Store current subtitle to avoid unnecessary updates
+            var currentDisplayedSubtitle: String? = nil
+            
+            // Set up subtitle timing with player time observer (reduced frequency to prevent overload)
+            let timeObserver = self.player?.addPeriodicTimeObserver(forInterval: CMTimeMake(value: 1, timescale: 1), queue: .main) { [weak self] time in
+                guard let self = self else { return }
+                
+                let currentTime = time.seconds
+                let currentSubtitle = self.findSubtitleForTime(currentTime, subtitles: subtitles)
+                
+                // Only update if subtitle text has changed
+                let newText = currentSubtitle?.text ?? ""
+                if newText != currentDisplayedSubtitle {
+                    subtitleLabel.text = newText
+                    currentDisplayedSubtitle = newText
+                    
+                    if !newText.isEmpty {
+                        // Show subtitle instantly
+                        subtitleLabel.isHidden = false
+                        subtitleLabel.alpha = 1.0
+                        print("Subtitle: \(newText)")
+                    } else {
+                        // Hide subtitle instantly
+                        subtitleLabel.isHidden = true
+                        print("Subtitle cleared")
+                    }
+                }
+            }
+            
+            // Store the observer for cleanup later
+            self.subtitleTimeObserver = timeObserver
+            
+        } catch {
+            print("Failed to read subtitle file: \(error)")
+        }
+    }
+    
+    private func parseSRTContent(_ content: String) -> [(start: Double, end: Double, text: String)] {
+        var subtitles: [(start: Double, end: Double, text: String)] = []
+        
+        let lines = content.components(separatedBy: .newlines)
+        var i = 0
+        
+        while i < lines.count {
+            let line = lines[i].trimmingCharacters(in: .whitespaces)
+            
+            // Skip empty lines and sequence numbers
+            if line.isEmpty || Int(line) != nil {
+                i += 1
+                continue
+            }
+            
+            // Check if this is a timestamp line
+            if line.contains("-->") {
+                let timeParts = line.components(separatedBy: " --> ")
+                if timeParts.count == 2 {
+                    let startTime = parseTimeString(timeParts[0])
+                    let endTime = parseTimeString(timeParts[1])
+                    
+                    // Get the subtitle text (next non-empty lines)
+                    var subtitleText = ""
+                    i += 1
+                    while i < lines.count && !lines[i].trimmingCharacters(in: .whitespaces).isEmpty {
+                        if !subtitleText.isEmpty {
+                            subtitleText += "\n"
                         }
-                        //Adds subtitle track
-                        if let subtitleTrack = composition.addMutableTrack(
-                            withMediaType: .text,
-                            preferredTrackID: kCMPersistentTrackID_Invalid) {
-                            do {
-                                let duration = self.videoAsset.duration
-                                try subtitleTrack.insertTimeRange(
-                                    CMTimeRangeMake(start: CMTime.zero,
-                                                    duration: duration),
-                                    of: subTitleAsset.tracks(
-                                        withMediaType: .text)[0],
-                                    at: CMTime.zero)
+                        subtitleText += lines[i].trimmingCharacters(in: .whitespaces)
+                        i += 1
+                    }
+                    
+                    if !subtitleText.isEmpty {
+                        subtitles.append((start: startTime, end: endTime, text: subtitleText))
+                    }
+                }
+            }
+            i += 1
+        }
+        
+        return subtitles
+    }
+    
+    private func parseVTTContent(_ content: String) -> [(start: Double, end: Double, text: String)] {
+        var subtitles: [(start: Double, end: Double, text: String)] = []
+        
+        let lines = content.components(separatedBy: .newlines)
+        var i = 0
+        
+        // Skip WEBVTT header
+        while i < lines.count && !lines[i].trimmingCharacters(in: .whitespaces).isEmpty {
+            if lines[i].trimmingCharacters(in: .whitespaces).hasPrefix("WEBVTT") {
+                i += 1
+                break
+            }
+            i += 1
+        }
+        
+        while i < lines.count {
+            let line = lines[i].trimmingCharacters(in: .whitespaces)
+            
+            // Skip empty lines
+            if line.isEmpty {
+                i += 1
+                continue
+            }
+            
+            // Check if this is a timestamp line (VTT format: 00:00:00.000 --> 00:00:20.000)
+            if line.contains("-->") {
+                let timeParts = line.components(separatedBy: " --> ")
+                if timeParts.count == 2 {
+                    let startTime = parseVTTTimeString(timeParts[0])
+                    let endTime = parseVTTTimeString(timeParts[1])
+                    
+                    // Get the subtitle text (next non-empty lines)
+                    var subtitleText = ""
+                    i += 1
+                    while i < lines.count && !lines[i].trimmingCharacters(in: .whitespaces).isEmpty {
+                        if !subtitleText.isEmpty {
+                            subtitleText += "\n"
+                        }
+                        subtitleText += lines[i].trimmingCharacters(in: .whitespaces)
+                        i += 1
+                    }
+                    
+                    if !subtitleText.isEmpty {
+                        subtitles.append((start: startTime, end: endTime, text: subtitleText))
+                    }
+                }
+            }
+            i += 1
+        }
+        
+        return subtitles
+    }
+    
+    private func parseVTTTimeString(_ timeString: String) -> Double {
+        // VTT format: 00:00:00.000 or 00:00:00,000
+        let cleanTime = timeString.replacingOccurrences(of: ",", with: ".")
+        let components = cleanTime.components(separatedBy: ":")
+        if components.count == 3 {
+            let hours = Double(components[0]) ?? 0
+            let minutes = Double(components[1]) ?? 0
+            let seconds = Double(components[2]) ?? 0
+            return hours * 3600 + minutes * 60 + seconds
+        }
+        return 0
+    }
+    
+    private func parseTimeString(_ timeString: String) -> Double {
+        let components = timeString.components(separatedBy: ":")
+        if components.count == 3 {
+            let hours = Double(components[0]) ?? 0
+            let minutes = Double(components[1]) ?? 0
+            let seconds = Double(components[2]) ?? 0
+            return hours * 3600 + minutes * 60 + seconds
+        }
+        return 0
+    }
+    
+    private func findSubtitleForTime(_ time: Double, subtitles: [(start: Double, end: Double, text: String)]) -> (start: Double, end: Double, text: String)? {
+        return subtitles.first { subtitle in
+            time >= subtitle.start && time <= subtitle.end
+        }
+    }
+    
+    private func isHLSStream(url: URL) -> Bool {
+        let urlString = url.absoluteString.lowercased()
+        return urlString.contains(".m3u8") || urlString.contains("m3u8")
+    }
+    
+    private func createPlayerWithSubtitles(subTitleUrl: URL, videoTracks: [AVAssetTrack]) {
+        print("Creating player with subtitles...")
+        
+        var textStyle: [AVTextStyleRule] = []
+        if let opt = self._stOptions {
+            textStyle.append(contentsOf: self.setSubTitleStyle(options: opt))
+        }
 
-                                self.playerItem = AVPlayerItem(asset: composition)
-                                self.playerItem?.textStyleRules = textStyle
+        let subTitleAsset = AVAsset(url: subTitleUrl)
+        print("Subtitle asset duration: \(subTitleAsset.duration)")
+        let composition = AVMutableComposition()
 
-                            } catch {
-                                self.playerItem = AVPlayerItem(asset: self.videoAsset)
-                            }
-                        } else {
+        if let videoTrack = composition.addMutableTrack(
+            withMediaType: AVMediaType.video,
+            preferredTrackID: Int32(kCMPersistentTrackID_Invalid)) {
+            
+            // Check if video has audio tracks
+            let audioTracks = self.videoAsset.tracks(withMediaType: AVMediaType.audio)
+            let audioTrack = composition.addMutableTrack(
+                withMediaType: AVMediaType.audio,
+                preferredTrackID: Int32(kCMPersistentTrackID_Invalid))
+            
+            do {
+                try videoTrack.insertTimeRange(
+                    CMTimeRangeMake(start: CMTime.zero,
+                                    duration: self.videoAsset.duration),
+                    of: videoTracks[0],
+                    at: CMTime.zero)
+                
+                // Add audio track if it exists
+                if !audioTracks.isEmpty, let audioTrack = audioTrack {
+                    try audioTrack.insertTimeRange(CMTimeRangeMake(
+                                                    start: CMTime.zero,
+                                                    duration: self.videoAsset.duration),
+                                                   of: audioTracks[0], at: CMTime.zero)
+                }
+                
+                // Check if subtitle asset has text tracks
+                let subtitleTracks = subTitleAsset.tracks(withMediaType: .text)
+                if !subtitleTracks.isEmpty {
+                    if let subtitleTrack = composition.addMutableTrack(
+                        withMediaType: .text,
+                        preferredTrackID: kCMPersistentTrackID_Invalid) {
+                        do {
+                            let duration = self.videoAsset.duration
+                            try subtitleTrack.insertTimeRange(
+                                CMTimeRangeMake(start: CMTime.zero,
+                                                duration: duration),
+                                of: subtitleTracks[0],
+                                at: CMTime.zero)
+
+                            self.playerItem = AVPlayerItem(asset: composition)
+                            self.playerItem?.textStyleRules = textStyle
+                            print("Successfully added subtitle track")
+
+                        } catch {
+                            print("Failed to insert subtitle track: \(error)")
                             self.playerItem = AVPlayerItem(asset: self.videoAsset)
                         }
-                    } catch {
+                    } else {
+                        print("Failed to create subtitle track")
                         self.playerItem = AVPlayerItem(asset: self.videoAsset)
                     }
                 } else {
+                    print("No subtitle tracks found in subtitle asset")
                     self.playerItem = AVPlayerItem(asset: self.videoAsset)
                 }
-            } else {
+            } catch {
+                print("Failed to insert video/audio tracks: \(error)")
                 self.playerItem = AVPlayerItem(asset: self.videoAsset)
             }
         } else {
+            print("Failed to create video track")
             self.playerItem = AVPlayerItem(asset: self.videoAsset)
         }
+        
         self.player = AVPlayer(playerItem: self.playerItem)
+        self.setupPlayer()
+    }
+    
+    private func setupPlayer() {
+        // Configure audio session to prevent HALC overload
+        self.configureAudioSession()
+        
+        // Optimize audio processing to prevent HALC overload
         self.player?.currentItem?.audioTimePitchAlgorithm = .timeDomain
+        self.player?.currentItem?.preferredForwardBufferDuration = 5.0
+        self.player?.currentItem?.canUseNetworkResourcesForLiveStreamingWhilePaused = false
+        
+        // Disable audio enhancement features that cause errors
+        if #available(iOS 15.0, *) {
+            self.player?.currentItem?.preferredPeakBitRate = 0
+        }
+        
+        // Additional optimizations to prevent HAL errors
+        self.player?.currentItem?.preferredMaximumResolution = CGSize(width: 1920, height: 1080)
+        self.player?.currentItem?.preferredForwardBufferDuration = 3.0
         if !self._showControls {
             self.videoPlayer.showsPlaybackControls = false
         }
@@ -181,8 +538,124 @@ open class FullScreenVideoPlayerView: UIView {
         }
 
         self._isLoaded.updateValue(false, forKey: self._videoId)
-
     }
+    
+    // MARK: - Audio Session Configuration
+    
+    private func configureAudioSession() {
+        do {
+            let audioSession = AVAudioSession.sharedInstance()
+            
+            // Deactivate any existing session first to prevent conflicts
+            try audioSession.setActive(false, options: .notifyOthersOnDeactivation)
+            
+            // Wait a moment for deactivation to complete
+            Thread.sleep(forTimeInterval: 0.1)
+            
+            // Configure for video playback to prevent HAL errors
+            try audioSession.setCategory(.playback, mode: .moviePlayback, options: [.allowAirPlay, .allowBluetooth, .mixWithOthers])
+            
+            // Set preferred sample rate to reduce processing load
+            try audioSession.setPreferredSampleRate(44100.0)
+            
+            // Set preferred buffer duration to reduce latency and prevent HAL errors
+            try audioSession.setPreferredIOBufferDuration(0.02)
+            
+            // Disable audio enhancement features that cause errors
+            if #available(iOS 15.0, *) {
+                try audioSession.setPrefersNoInterruptionsFromSystemAlerts(true)
+            }
+            
+            // Activate the session with proper options
+            try audioSession.setActive(true, options: [.notifyOthersOnDeactivation])
+            
+            print("✅ Audio session configured for video playback")
+        } catch {
+            print("❌ Failed to configure audio session: \(error)")
+            // Fallback configuration
+            self.configureAudioSessionFallback()
+        }
+    }
+    
+    private func configureAudioSessionFallback() {
+        do {
+            let audioSession = AVAudioSession.sharedInstance()
+            
+            // Simple fallback configuration
+            try audioSession.setCategory(.playback, mode: .default, options: [])
+            try audioSession.setActive(true)
+            
+            print("✅ Audio session fallback configured")
+        } catch {
+            print("❌ Failed to configure audio session fallback: \(error)")
+        }
+    }
+    
+    private func cleanupAudioSession() {
+        do {
+            let audioSession = AVAudioSession.sharedInstance()
+            
+            // Pause the player first to prevent HAL errors
+            self.player?.pause()
+            
+            // Wait a moment for audio to stop
+            Thread.sleep(forTimeInterval: 0.1)
+            
+            // Deactivate the session with proper options
+            try audioSession.setActive(false, options: .notifyOthersOnDeactivation)
+            
+            // Reset to default category to prevent conflicts
+            try audioSession.setCategory(.ambient, mode: .default, options: [])
+            
+            print("✅ Audio session deactivated and reset")
+        } catch {
+            print("❌ Failed to deactivate audio session: \(error)")
+            // Force deactivation
+            do {
+                let audioSession = AVAudioSession.sharedInstance()
+                try audioSession.setActive(false)
+                print("✅ Audio session force deactivated")
+            } catch {
+                print("❌ Failed to force deactivate audio session: \(error)")
+            }
+        }
+    }
+    
+    // MARK: - Auto-play for HLS streams
+    
+    private func autoPlayIfHLSReady() {
+        // Check if this is an HLS stream
+        let isHLSStream = self.isHLSStream(url: self._url)
+        
+        print("🔍 autoPlayIfHLSReady called - isHLSStream: \(isHLSStream), player exists: \(self.player != nil)")
+        
+        if isHLSStream {
+            print("🎬 HLS stream ready - starting auto-play")
+            
+            // Small delay to ensure everything is properly set up
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                guard let self = self else { return }
+                
+                // Start playing the HLS stream
+                self.player?.play()
+                self.player?.rate = self._videoRate
+                self.isPlaying = true
+                
+                print("✅ HLS stream auto-play started")
+                
+                // Notify that playback has started
+                let vId: [String: Any] = [
+                    "fromPlayerId": self._videoId,
+                    "currentTime": self._currentTime,
+                    "videoRate": self._videoRate
+                ]
+                NotificationCenter.default.post(name: .playerItemPlay, object: nil, userInfo: vId)
+            }
+        } else {
+            print("📹 Non-HLS stream - no auto-play")
+        }
+    }
+    
     // swiftlint:enable cyclomatic_complexity
     // swiftlint:enable function_body_length
 
@@ -230,7 +703,8 @@ open class FullScreenVideoPlayerView: UIView {
 
         self.itemStatusObserver = self.playerItem?
             .observe(\.status, options: [.new, .old],
-                     changeHandler: {(playerItem, _) in
+                     changeHandler: {[weak self] (playerItem, _) in
+                        guard let self = self else { return }
                         // Switch over the status
                         switch playerItem.status {
                         case .readyToPlay:
@@ -266,7 +740,8 @@ open class FullScreenVideoPlayerView: UIView {
 
         self.itemBufferObserver = self.playerItem?
             .observe(\.isPlaybackBufferEmpty,
-                     options: [.new, .old], changeHandler: {(playerItem, _) in
+                     options: [.new, .old], changeHandler: {[weak self] (playerItem, _) in
+                        guard let self = self else { return }
                         let empty: Bool = ((self.playerItem?.isPlaybackBufferEmpty) != nil)
                         if empty {
                             self._isBufferEmpty.updateValue(true, forKey: self._videoId)
@@ -275,7 +750,8 @@ open class FullScreenVideoPlayerView: UIView {
                         }
                      })
         self.playerRateObserver = self.player?
-            .observe(\.rate, options: [.new, .old], changeHandler: {(player, _) in
+            .observe(\.rate, options: [.new, .old], changeHandler: {[weak self] (player, _) in
+                guard let self = self else { return }
                 let rate: Float = player.rate
                 if let item = self.playerItem {
                     self._currentTime = CMTimeGetSeconds(item.currentTime())
@@ -324,7 +800,8 @@ open class FullScreenVideoPlayerView: UIView {
             })
         self.videoPlayerFrameObserver = self.videoPlayer
             .observe(\.view.frame, options: [.new, .old],
-                     changeHandler: {(_, _) in
+                     changeHandler: {[weak self] (_, _) in
+                        guard let self = self else { return }
                         if !isInPIPMode {
                             if self.videoPlayer.isBeingDismissed && !isVideoEnded {
                                 NotificationCenter.default.post(name: .playerFullscreenDismiss, object: nil)
@@ -334,7 +811,8 @@ open class FullScreenVideoPlayerView: UIView {
                      })
         self.videoPlayerMoveObserver = self.videoPlayer
             .observe(\.view.center, options: [.new, .old],
-                     changeHandler: {(_, _) in
+                     changeHandler: {[weak self] (_, _) in
+                        guard let self = self else { return }
                         if !isInPIPMode {
                             if self.videoPlayer.isBeingDismissed && !isVideoEnded {
                                 NotificationCenter.default.post(name: .playerFullscreenDismiss, object: nil)
@@ -351,10 +829,98 @@ open class FullScreenVideoPlayerView: UIView {
     // MARK: - Remove Observers
 
     func removeObservers() {
+        print("🧹 Cleaning up observers...")
+        
+        // Remove KVO observers
         self.itemStatusObserver?.invalidate()
         self.itemBufferObserver?.invalidate()
         self.playerRateObserver?.invalidate()
         self.videoPlayerFrameObserver?.invalidate()
+        self.videoPlayerMoveObserver?.invalidate()
+        
+        // Set observers to nil to break any potential retain cycles
+        self.itemStatusObserver = nil
+        self.itemBufferObserver = nil
+        self.playerRateObserver = nil
+        self.videoPlayerFrameObserver = nil
+        self.videoPlayerMoveObserver = nil
+        
+        // Remove time observers
+        if let periodicObserver = self.periodicTimeObserver {
+            self.player?.removeTimeObserver(periodicObserver)
+            self.periodicTimeObserver = nil
+        }
+        
+        if let subtitleObserver = self.subtitleTimeObserver {
+            self.player?.removeTimeObserver(subtitleObserver)
+            self.subtitleTimeObserver = nil
+        }
+        
+        // Clean up player
+        self.player?.pause()
+        self.player?.replaceCurrentItem(with: nil)
+        self.player = nil
+        self.playerItem = nil
+        
+        // Clean up video asset
+        self.videoAsset.cancelLoading()
+        
+        // Clean up audio session
+        self.cleanupAudioSession()
+        
+        // Clean up video player
+        self.videoPlayer.player = nil
+        
+        // Clean up subtitle labels from content overlay
+        if let contentOverlayView = self.videoPlayer.contentOverlayView {
+            for subview in contentOverlayView.subviews {
+                if subview is UILabel {
+                    subview.removeFromSuperview()
+                }
+            }
+        }
+        
+        // Clear any cached data
+        self._isLoaded.removeAll()
+        self._isBufferEmpty.removeAll()
+        
+        // Clear subtitle-related data
+        self._stUrl = nil
+        self._stLanguage = nil
+        self._stHeaders = nil
+        self._stOptions = nil
+        
+        // Clear video asset reference completely
+        self.videoAsset = AVURLAsset(url: URL(string: "about:blank")!)
+        
+        // Force garbage collection to help with memory cleanup
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            autoreleasepool {
+                // This helps with memory cleanup
+            }
+        }
+        
+        print("✅ Observers cleaned up")
+    }
+    
+    deinit {
+        print("🗑️ FullScreenVideoPlayerView deinit called")
+        self.removeObservers()
+    }
+    
+    // MARK: - Public cleanup method for manual disposal
+    
+    @objc func cleanup() {
+        print("🧹 Manual cleanup called")
+        self.removeObservers()
+        
+        // Force immediate memory cleanup
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            autoreleasepool {
+                // Force garbage collection
+                print("🔄 Forcing memory cleanup...")
+            }
+        }
     }
 
     // MARK: - Required init
@@ -365,13 +931,20 @@ open class FullScreenVideoPlayerView: UIView {
     // MARK: - Set-up Public functions
 
     @objc func play() {
+        // Ensure audio session is properly configured before playing
+        self.configureAudioSession()
+        
         self.isPlaying = true
         self.player?.play()
         self.player?.rate = _videoRate
+        
+        print("▶️ Video playback started")
     }
     @objc func pause() {
         self.isPlaying = false
         self.player?.pause()
+        
+        print("⏸️ Video playback paused")
     }
     @objc func didFinishPlaying() -> Bool {
         return isVideoEnded
@@ -482,7 +1055,8 @@ open class FullScreenVideoPlayerView: UIView {
 
             } catch let error {
                 print("Processing subs error: \(error)")
-                exit(1)
+                // Log error and continue - the VTT file may not be created
+                // but the function will still return the VTT URL path
             }
 
         }

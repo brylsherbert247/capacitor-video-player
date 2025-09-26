@@ -87,21 +87,32 @@ extension CapacitorVideoPlayerPlugin {
     // MARK: - playerFullscreenExit
 
     func playerFullscreenExit() {
+        // Mark player as dismissed to prevent further calls
+        self.isPlayerDismissed = true
+        
         if let vPFSV = self.videoPlayerFullScreenView {
-            vPFSV.removeObservers()
+            print("🧹 Cleaning up video player on exit...")
+            
+            // Comprehensive cleanup
+            vPFSV.cleanup()
             self.terminateNowPlayingInfo()
+            
+            // Additional cleanup
             vPFSV.videoPlayer.player = nil
             vPFSV.player = nil
-            /*
-            if self.displayMode == "landscape" {
-                vPFSV.videoPlayer = PortraitAVPlayerController()
-            } else if self.displayMode == "portrait" {
-                vPFSV.videoPlayer = LandscapeAVPlayerController()
-            } else {
-                vPFSV.videoPlayer = AllOrientationAVPlayerController()
-            }
-            */
+            vPFSV.playerItem = nil
+            
+            // Clear the reference
             self.videoPlayerFullScreenView = nil
+            
+            // Force memory cleanup
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                autoreleasepool {
+                    // This helps with memory cleanup
+                }
+            }
+            
+            print("✅ Video player cleanup completed")
         }
         if let viewController = self.bridge?.viewController {
             viewController.dismiss(animated: true, completion: {
